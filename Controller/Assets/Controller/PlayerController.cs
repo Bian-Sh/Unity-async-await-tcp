@@ -1,7 +1,9 @@
-﻿using System;
+﻿using Cysharp.Threading.Tasks;
+using System;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
@@ -12,44 +14,78 @@ public class PlayerController : MonoBehaviour
 
     public Button playAndPause;
     public Button stop;
+    public Button connectButton; //连接与断开连接
+
     public Dropdown dropdown;
     public Text message;
+
     public bool isPlay = false;
     public PlayList playList;
     private string currentPlayFile;
     TcpClient tcpClient;
     bool isRun = false;
-    async void Start()
+
+
+    CircularBuffer recvbuffer = new CircularBuffer();
+    PacketParser recvparser;
+
+    void Start()
     {
         playAndPause.onClick.AddListener(OnPlayAndPauseButtonClicked);
         stop.onClick.AddListener(Stop);
+        connectButton.onClick.AddListener(OnConnectOrDisConnectRequired);
         dropdown.onValueChanged.AddListener(OnDropDownValueChanged);
         stop.GetComponentInChildren<Text>().text = "Stop";
         playAndPause.GetComponentInChildren<Text>().text = "Play";
-
         EventManager.AddListener(Command.Play, OnPlayResponse);
         EventManager.AddListener(Command.Pause, OnPauseResponse);
         EventManager.AddListener(Command.Stop, OnStopResponse);
         EventManager.AddListener(Command.PlayList, OnPlayListResponse);
-        await ConnectAsTcpClient();
-        RequestPlayList();
     }
-    private async Task ConnectAsTcpClient()
+
+
+    private async void OnConnectOrDisConnectRequired()
+    {
+
+        connectButton.interactable = false;
+        if (!isRun)
+        {
+            connectButton.GetComponentInChildren<Text>().text = "连接中...";
+            var isConnectedSuccess= await ConnectAsTcpClientAsync();
+            connectButton.GetComponentInChildren<Text>().text =isConnectedSuccess? "已连接":"连接服务器";
+        }
+        else
+        {
+            tcpClient.Close();
+            tcpClient = null;
+            isRun = false;
+            connectButton.GetComponentInChildren<Text>().text = "连接服务器";
+        }
+        connectButton.interactable = true;
+    }
+
+    private async Task<bool> ConnectAsTcpClientAsync()
     {
         isRun = true;
         tcpClient = new TcpClient();
+        recvparser = new PacketParser(recvbuffer);
         tcpClient.NoDelay = true;
         try
         {
             await tcpClient.ConnectAsync("127.0.0.1", 8888);
+            _ = Task.Run(StreamReadHandleAsync);
+            await UniTask.Yield();
+            message.text = "[控制器] 连接到播放器!"; //在不确定Task是否再主线程中执行，务必 await UniTask.Yield() 返回主线程后才能调用Unity组件
+            //小提示：此处分发握手成功事件，务必 await UniTask.Yield() 返回主线程。
         }
         catch (Exception e)
         {
-            message.text = $"[控制器] 连接到播放器失败 {e}!";
-            throw;
+            Debug.LogError($"{nameof(PlayerController)}: [控制器] 连接到播放器失败 {e}");
+            await UniTask.Yield();
+            Close();
+            //小提示：此处分发握手失败事件，值得注意的是必须先返回主线程，本例使用 await UniTask.Yield() 返回主线程
         }
-        UnitySynchronizationContext.Post(() => message.text = "[控制器] 连接到播放器!");
-        var _ = Task.Run(StreamReadHandleAsync);
+        return isRun; 
     }
 
     async Task StreamReadHandleAsync()
@@ -57,37 +93,70 @@ public class PlayerController : MonoBehaviour
         Debug.Log("开启数据读逻辑");
         try
         {
-            while (isRun && tcpClient.Connected)
+            while (isRun && tcpClient.IsOnline())
             {
-                var networkStream = tcpClient.GetStream();
-                var buffer = new byte[4096];
-                var byteCount = await networkStream.ReadAsync(buffer, 0, buffer.Length);
-                if (byteCount == 0) break;//服务器端口
-                var response = Encoding.UTF8.GetString(buffer, 0, byteCount);
-                Debug.Log($"[控制器] 接收到播放器消息 {response}!");
-                UnitySynchronizationContext.Post(() => EventManager.Invoke(JsonUtility.FromJson<Message>(response)));
+                var stream = tcpClient.GetStream();
+                await recvbuffer.WriteAsync(stream);
+                bool isOK = this.recvparser.Parse();
+                if (isOK)
+                {
+                    Packet packet = this.recvparser.GetPacket();
+                    var request = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
+                    Debug.Log($"[控制器] 接收到播放器消息 {request}!");
+                    await UniTask.Yield();
+                    try
+                    {
+                        EventManager.Invoke(JsonUtility.FromJson<Message>(request)); // 这里必须使用Try catch ，避免这条语句触发异常被外部捕捉而导致网络意外断开
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.Log($"{nameof(PlayerController)}: {e}");
+                    }
+                }
             }
         }
         catch (Exception e)
         {
-            UnitySynchronizationContext.Post(() => { if (message) message.text = $"[控制器] 接收消息失败: {e}!"; });
-            throw;
+            await UniTask.Yield();
+            Debug.LogError($"{nameof(PlayerController)}: [控制器] 接收消息失败: {e}");
+        }
+        finally
+        {
+            Debug.LogError($"{nameof(PlayerController)}: 与服务器断开连接！");
+            await UniTask.Yield();
+            Close();
+            //小提示：此处分发与服务器断开连接事件，值得注意的是必须先返回主线程，本例使用 await UniTask.Yield() 返回主线程
         }
     }
 
+    void Close() 
+    {
+        connectButton.GetComponentInChildren<Text>().text = "连接服务器";
+        tcpClient?.Close();
+        tcpClient = null;
+        isRun = false;
+    }
 
     void SendNetMessage(string str)
     {
         try
         {
-            if (null != tcpClient && tcpClient.Connected)
+            if (isRun)
             {
                 var networkStream = tcpClient.GetStream();
-                var ClientRequestBytes = Encoding.UTF8.GetBytes(str);
-                networkStream.Write(ClientRequestBytes, 0, ClientRequestBytes.Length);
+                var data = Encoding.UTF8.GetBytes(str);
+                byte[] size = BytesHelper.GetBytes((ushort)data.Length);
+                var temp = new byte[size.Length + data.Length];
+                Buffer.BlockCopy(size, 0, temp, 0, size.Length);
+                Buffer.BlockCopy(data, 0, temp, size.Length, data.Length);
+                networkStream.Write(temp, 0, temp.Length);
                 networkStream.Flush();
                 Debug.Log($"[控制器] 发送到播放器消息 {str}!");
                 UnitySynchronizationContext.Post(() => { if (message) message.text = $"[控制器] 发送到播放器消息 {str}!"; });
+            }
+            else
+            {
+                Debug.LogWarning($"{nameof(PlayerController)}: 已经与服务器断开连接！");
             }
         }
         catch (Exception e)
@@ -221,5 +290,21 @@ public class PlayerController : MonoBehaviour
     private void OnDestroy()
     {
         isRun = false;
+        //软件退出主动关闭socket
+        tcpClient?.Close();
+    }
+}
+
+/// <summary>
+/// TcpClient.Connected: 属性获取截止到最后一次 I/O 操作时的 Client 套接字的连接状态。
+/// C# TcpClient在连接成功后，对方关闭了网络连接是不能及时的检测到断开的，
+/// 故而使用此扩展检测连接状态
+/// </summary>
+public static class TcpClientEx
+{
+
+    public static bool IsOnline(this TcpClient c)
+    {
+        return !((c.Client.Poll(1000, SelectMode.SelectRead) && (c.Client.Available == 0)) || !c.Client.Connected);
     }
 }
