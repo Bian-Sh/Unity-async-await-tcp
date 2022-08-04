@@ -82,8 +82,6 @@ public class PlayerServer : MonoBehaviour
         Debug.Log("播放器收到开始播放指令！");
         Message message = JsonUtility.FromJson<Message>(obj);
         var item = playList.items.Find(v => v.name == message.cmdContext);
-        Debug.Log($"{nameof(PlayerServer)}: id = {message.id}");
-
         if (currentPlayFile == message.cmdContext)
         {
             player.Play();

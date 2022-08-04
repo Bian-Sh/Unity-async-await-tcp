@@ -236,11 +236,7 @@ public class PlayerController : MonoBehaviour
         {
             currentPlayFile = video.name;
             message.text = $"正在请求播放 {currentPlayFile}...";
-
-            for (int i = 0; i < 15; i++)
-            {
-                SendNetMessage(JsonUtility.ToJson(new Message { id = i, command = Command.Play, cmdContext = currentPlayFile }));
-            }
+            SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Play, cmdContext = currentPlayFile }));
         }
         else
         {
