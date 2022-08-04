@@ -3,11 +3,10 @@ using System;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
-using zFrame.ThreadEx;
+using static zFrame.ThreadEx.UnitySynchronizationContext;
 
 public class PlayerController : MonoBehaviour
 {
@@ -48,11 +47,12 @@ public class PlayerController : MonoBehaviour
     {
 
         connectButton.interactable = false;
+        var text = connectButton.GetComponentInChildren<Text>();
         if (!isRun)
         {
-            connectButton.GetComponentInChildren<Text>().text = "连接中...";
-            var isConnectedSuccess= await ConnectAsTcpClientAsync();
-            connectButton.GetComponentInChildren<Text>().text =isConnectedSuccess? "已连接":"连接服务器";
+            text.text = "连接中...";
+            var isConnectedSuccess = await ConnectAsTcpClientAsync();
+            text.text = isConnectedSuccess ? "已连接" : "连接服务器";
         }
         else
         {
@@ -85,7 +85,7 @@ public class PlayerController : MonoBehaviour
             Close();
             //小提示：此处分发握手失败事件，值得注意的是必须先返回主线程，本例使用 await UniTask.Yield() 返回主线程
         }
-        return isRun; 
+        return isRun;
     }
 
     async Task StreamReadHandleAsync()
@@ -97,16 +97,15 @@ public class PlayerController : MonoBehaviour
             {
                 var stream = tcpClient.GetStream();
                 await recvbuffer.WriteAsync(stream);
-                bool isOK = this.recvparser.Parse();
-                if (isOK)
+                var packets = await recvparser.ParseAsync();
+                foreach (var packet in packets)
                 {
-                    Packet packet = this.recvparser.GetPacket();
                     var request = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
                     Debug.Log($"[控制器] 接收到播放器消息 {request}!");
                     await UniTask.Yield();
                     try
                     {
-                        EventManager.Invoke(JsonUtility.FromJson<Message>(request)); // 这里必须使用Try catch ，避免这条语句触发异常被外部捕捉而导致网络意外断开
+                        EventManager.Invoke(JsonUtility.FromJson<Message>(request)); // 这里必须使用Try catch ，避免用户逻辑异常被外部捕捉而导致网络意外断开
                     }
                     catch (Exception e)
                     {
@@ -129,7 +128,7 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    void Close() 
+    void Close()
     {
         connectButton.GetComponentInChildren<Text>().text = "连接服务器";
         tcpClient?.Close();
@@ -145,14 +144,14 @@ public class PlayerController : MonoBehaviour
             {
                 var networkStream = tcpClient.GetStream();
                 var data = Encoding.UTF8.GetBytes(str);
-                byte[] size = BytesHelper.GetBytes((ushort)data.Length);
+                byte[] size = BytesHelper.GetBytes(data.Length);
                 var temp = new byte[size.Length + data.Length];
                 Buffer.BlockCopy(size, 0, temp, 0, size.Length);
                 Buffer.BlockCopy(data, 0, temp, size.Length, data.Length);
                 networkStream.Write(temp, 0, temp.Length);
                 networkStream.Flush();
                 Debug.Log($"[控制器] 发送到播放器消息 {str}!");
-                UnitySynchronizationContext.Post(() => { if (message) message.text = $"[控制器] 发送到播放器消息 {str}!"; });
+                Post(() => { if (message) message.text = $"[控制器] 发送到播放器消息 {str}!"; });
             }
             else
             {
@@ -161,7 +160,7 @@ public class PlayerController : MonoBehaviour
         }
         catch (Exception e)
         {
-            UnitySynchronizationContext.Post(() => { if (message) message.text = $"[控制器] 发送消息到播放器错误 {e}!"; });
+            Post(() => { if (message) message.text = $"[控制器] 发送消息到播放器错误 {e}!"; });
             throw;
         }
     }
@@ -237,8 +236,11 @@ public class PlayerController : MonoBehaviour
         {
             currentPlayFile = video.name;
             message.text = $"正在请求播放 {currentPlayFile}...";
-            SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Play, cmdContext = currentPlayFile }));
 
+            for (int i = 0; i < 15; i++)
+            {
+                SendNetMessage(JsonUtility.ToJson(new Message { id = i, command = Command.Play, cmdContext = currentPlayFile }));
+            }
         }
         else
         {

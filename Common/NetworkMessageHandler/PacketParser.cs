@@ -1,5 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Threading.Tasks;
+
 internal enum ParserState
 {
     PacketSize,
@@ -8,104 +11,88 @@ internal enum ParserState
 
 public struct Packet
 {
-    public const int MinSize = 2;
     public const int FlagIndex = 0;
     public const int OpcodeIndex = 1;
-    public const int Index = 3;
 
-    /// <summary>
-    /// 只读，不允许修改
-    /// </summary>
     public byte[] Bytes { get; }
-    public ushort Length { get; set; }
-
-    public Packet(int length)
+    public int Length { get; set; }
+    public Packet(uint length)
     {
         this.Length = 0;
         this.Bytes = new byte[length];
     }
-
     public Packet(byte[] bytes)
     {
         this.Bytes = bytes;
-        this.Length = (ushort)bytes.Length;
+        this.Length = bytes.Length;
     }
-
-    public byte Flag()
-    {
-        return this.Bytes[0];
-    }
-
-    public ushort Opcode()
-    {
-        return BitConverter.ToUInt16(this.Bytes, OpcodeIndex);
-    }
+    public byte Flag() => Bytes[0];
+    public ushort Opcode => BitConverter.ToUInt16(Bytes, OpcodeIndex);
 }
 
 public class PacketParser
 {
     private readonly CircularBuffer buffer;
-
-    private ushort packetSize;
-    private ParserState state;
-    private Packet packet = new Packet(ushort.MaxValue);
-    private bool isOK;
-
-    public PacketParser(CircularBuffer buffer)
+    private ParserState state = ParserState.PacketSize;
+    private Packet packet;
+    private uint capacity; //声明 packet 的最大容量
+    public PacketParser(CircularBuffer buffer, uint capacity = 60000)
     {
+        this.capacity = capacity;
         this.buffer = buffer;
     }
 
-    public bool Parse()
+    public List<Packet> Parse()
     {
-        if (this.isOK)
+        List<Packet> packets = new List<Packet>();
+        while (state == ParserState.PacketSize && buffer.Length >= 2 || state == ParserState.PacketBody && buffer.Length >= packet.Length)
         {
-            return true;
-        }
-
-        bool finish = false;
-        while (!finish)
-        {
-            switch (this.state)
+            switch (state)
             {
                 case ParserState.PacketSize:
-                    if (this.buffer.Length < 2)
+                    packet = new Packet(capacity);
+                    buffer.Read(packet.Bytes, 0, sizeof(int));
+                    packet.Length = BytesHelper.ToUInt16(packet.Bytes, 0);
+                    if (packet.Length > capacity)
                     {
-                        finish = true;
+                        throw new Exception($"packet too large, size: {packet.Length}");
                     }
-                    else
-                    {
-                        this.buffer.Read(this.packet.Bytes, 0, 2);
-                        this.packetSize = BytesHelper.ToUInt16(this.packet.Bytes, 0);
-                        if (packetSize > 60000)
-                        {
-                            throw new Exception($"packet too large, size: {this.packetSize}");
-                        }
-                        this.state = ParserState.PacketBody;
-                    }
+                    state = ParserState.PacketBody;
                     break;
                 case ParserState.PacketBody:
-                    if (this.buffer.Length < this.packetSize)
-                    {
-                        finish = true;
-                    }
-                    else
-                    {
-                        this.buffer.Read(this.packet.Bytes, 0, this.packetSize);
-                        this.packet.Length = this.packetSize;
-                        this.isOK = true;
-                        this.state = ParserState.PacketSize;
-                        finish = true;
-                    }
+                    buffer.Read(packet.Bytes, 0, packet.Length);
+                    packets.Add(packet);
+                    state = ParserState.PacketSize;
                     break;
             }
         }
-        return this.isOK;
+        return packets;
     }
 
-    public Packet GetPacket()
+    public async Task<List<Packet>> ParseAsync()
     {
-        this.isOK = false;
-        return this.packet;
+        List<Packet> packets = new List<Packet>();
+        while (state == ParserState.PacketSize && buffer.Length >= 2 || state == ParserState.PacketBody && buffer.Length >= packet.Length)
+        {
+            switch (state)
+            {
+                case ParserState.PacketSize:
+                    packet = new Packet(capacity);
+                    await buffer.ReadAsync(packet.Bytes, 0, sizeof(int));
+                    packet.Length = BytesHelper.ToUInt16(packet.Bytes, 0);
+                    if (packet.Length > capacity)
+                    {
+                        throw new Exception($"packet too large, size: {packet.Length}");
+                    }
+                    state = ParserState.PacketBody;
+                    break;
+                case ParserState.PacketBody:
+                    await buffer.ReadAsync(packet.Bytes, 0, (int)packet.Length);
+                    packets.Add(packet);
+                    state = ParserState.PacketSize;
+                    break;
+            }
+        }
+        return packets;
     }
 }

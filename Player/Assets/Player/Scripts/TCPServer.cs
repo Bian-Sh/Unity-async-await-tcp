@@ -60,7 +60,7 @@ public class TCPServer : IDisposable
                 var client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
                 _ = Task.Run(() => OnConnectClientAsync(client));
                 await UniTask.Yield(); //通过该语句，程序将返回主线程上下文，其他地方一个意思
-                OnClientConnected.Invoke(client); 
+                OnClientConnected.Invoke(client);
             }
             catch (ObjectDisposedException e)// thrown if the listener socket is closed
             {
@@ -115,7 +115,7 @@ public class TCPServer : IDisposable
         }
         finally
         {
-            Debug.Log($"连接断开 {clientEndpoint}"); 
+            Debug.Log($"连接断开 {clientEndpoint}");
             clients.Remove(client);
         }
     }
@@ -123,18 +123,17 @@ public class TCPServer : IDisposable
 
     async Task HandleNetworkStreamAsync(TcpClient client)
     {
-        while (client.IsOnline())  
+        while (client.IsOnline())
         {
             var stream = client.GetStream();
             var byteCount = await recvbuffer.WriteAsync(stream);
             stream.Flush();
             if (byteCount == 0) break;//断线了
-            bool isOK = this.recvparser.Parse();
-            if (isOK)
+            var packets = await recvparser.ParseAsync();
+            foreach (var packet in packets)
             {
-                Packet packet = this.recvparser.GetPacket();
                 var request = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                Debug.Log($"[控制器] 接收到播放器消息 {request}!");
+                Debug.Log($"[播放器] 接收到控制器消息 {request}!");
                 await UniTask.Yield();
                 try
                 {
@@ -172,7 +171,7 @@ public class TCPServer : IDisposable
         {
             try
             {
-                byte[] size = BytesHelper.GetBytes((ushort)data.Length); //简易封包协议：包长度+包体
+                byte[] size = BytesHelper.GetBytes(data.Length); //简易封包协议：包长度+包体
                 var temp = new byte[size.Length + data.Length];
                 Buffer.BlockCopy(size, 0, temp, 0, size.Length);
                 Buffer.BlockCopy(data, 0, temp, size.Length, data.Length);

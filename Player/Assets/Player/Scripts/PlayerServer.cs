@@ -36,11 +36,11 @@ public class PlayerServer : MonoBehaviour
     }
 
 
-    private void OnClientConnected(TcpClient arg0) 
+    private void OnClientConnected(TcpClient arg0)
     {
         string pl = JsonUtility.ToJson(playList);
         Message message = new Message { command = Command.PlayList, cmdContext = pl };
-        TCPServer.SendMessageToClient(arg0,Encoding.UTF8.GetBytes(JsonUtility.ToJson(message))); 
+        TCPServer.SendMessageToClient(arg0, Encoding.UTF8.GetBytes(JsonUtility.ToJson(message)));
     }
 
     private void OnPlayListResponse(string obj)
@@ -82,6 +82,7 @@ public class PlayerServer : MonoBehaviour
         Debug.Log("播放器收到开始播放指令！");
         Message message = JsonUtility.FromJson<Message>(obj);
         var item = playList.items.Find(v => v.name == message.cmdContext);
+        Debug.Log($"{nameof(PlayerServer)}: id = {message.id}");
 
         if (currentPlayFile == message.cmdContext)
         {

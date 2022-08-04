@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -10,7 +11,7 @@ public class CircularBuffer : Stream
 
     private readonly Queue<byte[]> bufferQueue = new Queue<byte[]>();
 
-    private readonly Queue<byte[]> bufferCache = new Queue<byte[]>();
+    private readonly ConcurrentQueue<byte[]> bufferCache = new ConcurrentQueue<byte[]>();
 
     public int LastIndex { get; set; }
 
@@ -52,12 +53,7 @@ public class CircularBuffer : Stream
 
     public void AddLast()
     {
-        byte[] buffer;
-        if (this.bufferCache.Count > 0)
-        {
-            buffer = this.bufferCache.Dequeue();
-        }
-        else
+        if (!this.bufferCache.TryDequeue(out var buffer))
         {
             buffer = new byte[ChunkSize];
         }
