@@ -5,10 +5,10 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
-using zFrame.ThreadEx;
 using UnityEngine.Events;
 using System.Net.NetworkInformation;
-using Cysharp.Threading.Tasks;
+using static zFramework.Misc.Loom;
+using static zFramework.Misc.MessageQueue;
 
 public class TCPServer : IDisposable
 {
@@ -59,8 +59,8 @@ public class TCPServer : IDisposable
             {
                 var client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
                 _ = Task.Run(() => OnConnectClientAsync(client));
-                await UniTask.Yield(); //通过该语句，程序将返回主线程上下文，其他地方一个意思
-                OnClientConnected.Invoke(client);
+                //通过该语句，程序将返回主线程上下文，其他地方一个意思
+                Post(() => OnClientConnected.Invoke(client));
             }
             catch (ObjectDisposedException e)// thrown if the listener socket is closed
             {
@@ -72,8 +72,7 @@ public class TCPServer : IDisposable
             }
             finally
             {
-                await UniTask.Yield();
-                OnServiceClosed.Invoke();
+                Post(() =>OnServiceClosed.Invoke());
             }
         }
     }
@@ -132,17 +131,9 @@ public class TCPServer : IDisposable
             var packets = await recvparser.ParseAsync();
             foreach (var packet in packets)
             {
-                var request = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                Debug.Log($"[播放器] 接收到控制器消息 {request}!");
-                await UniTask.Yield();
-                try
-                {
-                    EventManager.Invoke(JsonUtility.FromJson<Message>(request)); // 这里必须使用Try catch ，避免用户逻辑异常被外部捕捉而导致网络意外断开
-                }
-                catch (Exception e)
-                {
-                    Debug.Log($"{nameof(TCPServer)}: {e}");
-                }
+                var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
+                Debug.Log($"[播放器] 接收到控制器消息 {message},将消息压入消息队列！");
+                Enqueue(message);
             }
         }
     }
@@ -228,7 +219,6 @@ public class TCPServer : IDisposable
 /// </summary>
 public static class TcpClientEx
 {
-
     public static bool IsOnline(this TcpClient c)
     {
         return !((c.Client.Poll(1000, SelectMode.SelectRead) && (c.Client.Available == 0)) || !c.Client.Connected);

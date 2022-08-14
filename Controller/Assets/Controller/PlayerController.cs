@@ -1,12 +1,13 @@
-﻿using Cysharp.Threading.Tasks;
-using System;
+﻿using System;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
-using static zFrame.ThreadEx.UnitySynchronizationContext;
+using static zFramework.Misc.MessageQueue;
+using static zFramework.Misc.Loom;
+using zFramework.Events;
 
 public class PlayerController : MonoBehaviour
 {
@@ -16,7 +17,6 @@ public class PlayerController : MonoBehaviour
     public Button connectButton; //连接与断开连接
 
     public Dropdown dropdown;
-    public Text message;
 
     public bool isPlay = false;
     public PlayList playList;
@@ -74,16 +74,12 @@ public class PlayerController : MonoBehaviour
         {
             await tcpClient.ConnectAsync("127.0.0.1", 8888);
             _ = Task.Run(StreamReadHandleAsync);
-            await UniTask.Yield();
-            message.text = "[控制器] 连接到播放器!"; //在不确定Task是否再主线程中执行，务必 await UniTask.Yield() 返回主线程后才能调用Unity组件
-            //小提示：此处分发握手成功事件，务必 await UniTask.Yield() 返回主线程。
+
         }
         catch (Exception e)
         {
             Debug.LogError($"{nameof(PlayerController)}: [控制器] 连接到播放器失败 {e}");
-            await UniTask.Yield();
             Close();
-            //小提示：此处分发握手失败事件，值得注意的是必须先返回主线程，本例使用 await UniTask.Yield() 返回主线程
         }
         return isRun;
     }
@@ -100,40 +96,35 @@ public class PlayerController : MonoBehaviour
                 var packets = await recvparser.ParseAsync();
                 foreach (var packet in packets)
                 {
-                    var request = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                    Debug.Log($"[控制器] 接收到播放器消息 {request}!");
-                    await UniTask.Yield();
-                    try
-                    {
-                        EventManager.Invoke(JsonUtility.FromJson<Message>(request)); // 这里必须使用Try catch ，避免用户逻辑异常被外部捕捉而导致网络意外断开
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.Log($"{nameof(PlayerController)}: {e}");
-                    }
+                    var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
+                    Debug.Log($"[控制器] 接收到播放器消息 {message}， 压入消息队列？");
+                    Enqueue(message);
                 }
             }
         }
         catch (Exception e)
         {
-            await UniTask.Yield();
             Debug.LogError($"{nameof(PlayerController)}: [控制器] 接收消息失败: {e}");
         }
         finally
         {
             Debug.LogError($"{nameof(PlayerController)}: 与服务器断开连接！");
-            await UniTask.Yield();
             Close();
-            //小提示：此处分发与服务器断开连接事件，值得注意的是必须先返回主线程，本例使用 await UniTask.Yield() 返回主线程
         }
     }
 
     void Close()
     {
-        connectButton.GetComponentInChildren<Text>().text = "连接服务器";
         tcpClient?.Close();
         tcpClient = null;
         isRun = false;
+        // 此函数可能在非主线程执行，需要
+        Post(() => 
+        {
+            connectButton.GetComponentInChildren<Text>().text = "连接服务器";
+            playAndPause.GetComponentInChildren<Text>().text = "Play";
+            isPlay = false;
+        });
     }
 
     void SendNetMessage(string str)
@@ -151,7 +142,6 @@ public class PlayerController : MonoBehaviour
                 networkStream.Write(temp, 0, temp.Length);
                 networkStream.Flush();
                 Debug.Log($"[控制器] 发送到播放器消息 {str}!");
-                Post(() => { if (message) message.text = $"[控制器] 发送到播放器消息 {str}!"; });
             }
             else
             {
@@ -160,8 +150,7 @@ public class PlayerController : MonoBehaviour
         }
         catch (Exception e)
         {
-            Post(() => { if (message) message.text = $"[控制器] 发送消息到播放器错误 {e}!"; });
-            throw;
+            Debug.LogError($"[控制器] 发送消息到播放器错误 {e}!");
         }
     }
 
@@ -177,8 +166,8 @@ public class PlayerController : MonoBehaviour
         Message m = JsonUtility.FromJson<Message>(obj);
         isPlay = false;
         playAndPause.GetComponentInChildren<Text>().text = "Play";
-        message.text = $"播放停止 ";
         currentPlayFile = string.Empty;
+        Debug.LogWarning($"{nameof(PlayerController)}: 播放停止 !");
     }
 
     private void OnPauseResponse(string obj)
@@ -186,8 +175,7 @@ public class PlayerController : MonoBehaviour
         Message m = JsonUtility.FromJson<Message>(obj);
         isPlay = false;
         playAndPause.GetComponentInChildren<Text>().text = "Play";
-        message.text = $"暂停播放 {currentPlayFile}";
-
+        Debug.LogWarning($"{nameof(PlayerController)}: 播放暂停 !");
     }
 
     private void OnPlayResponse(string obj)
@@ -198,11 +186,11 @@ public class PlayerController : MonoBehaviour
         if (null != m)
         {
             VideoItem i = JsonUtility.FromJson<VideoItem>(m.cmdContext);
-            message.text = $"生在播放 ：{i.name}\n文件备注 ：{ i.description}";
+            Debug.Log($"{nameof(PlayerController)}: 确认播放 ：{i.name}\n文件备注 ：{i.description}");
         }
         else
         {
-            message.text = $"播放失败 !";
+            Debug.LogWarning($"{nameof(PlayerController)}: 播放失败 ! ");
         }
     }
 
@@ -216,47 +204,44 @@ public class PlayerController : MonoBehaviour
 
     private void Stop()//停止播放
     {
-        message.text = $"请求停止播放视频！ ";
+        Debug.Log("请求停止播放视频！");
         SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
     }
     private void Play()
     {
         if (dropdown.options.Count == 0)
         {
-            message.text = "播放列表为空！";
+            Debug.Log("播放列表为空！");
             return;
         }
+
         if (isPlay && currentPlayFile == dropdown.captionText.text)
         {
-            message.text = $"{currentPlayFile } 正在播放中！";
+            Debug.Log($"{currentPlayFile} 正在播放中！");
             return;
         }
+
         VideoItem video = playList.items.Find(v => v.name == dropdown.captionText.text);
         if (null != video)
         {
             currentPlayFile = video.name;
-            message.text = $"正在请求播放 {currentPlayFile}...";
+            Debug.Log($"正在请求播放 {currentPlayFile}...");
             SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Play, cmdContext = currentPlayFile }));
         }
         else
         {
-            message.text = $"请求的文件 : {dropdown.captionText.text} 不在播放列表";
+            Debug.Log($"请求的文件 : {dropdown.captionText.text} 不在播放列表");
         }
     }
 
     private void Pause()
     {
-        message.text = $"请求暂停视频播放！ ";
+        Debug.Log($"请求暂停视频播放！ ");
         SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Pause }));
-
     }
 
-    //请求播放列表
-    private void RequestPlayList()
-    {
-        //登陆后请求更新播放列表
-        SendNetMessage(JsonUtility.ToJson(new Message { command = Command.PlayList }));
-    }
+    //登陆后请求更新播放列表
+    private void RequestPlayList() => SendNetMessage(JsonUtility.ToJson(new Message { command = Command.PlayList }));
 
     //更新播放列表
     private void UpdatePlayList()
@@ -267,7 +252,7 @@ public class PlayerController : MonoBehaviour
             dropdown.ClearOptions();
             var files = playList.items.Select(v => v.name).ToList();
             dropdown.AddOptions(files);
-            message.text = "列表更新完毕！";
+            Debug.Log("列表更新完毕！");
         }
     }
 
@@ -300,7 +285,6 @@ public class PlayerController : MonoBehaviour
 /// </summary>
 public static class TcpClientEx
 {
-
     public static bool IsOnline(this TcpClient c)
     {
         return !((c.Client.Poll(1000, SelectMode.SelectRead) && (c.Client.Available == 0)) || !c.Client.Connected);
