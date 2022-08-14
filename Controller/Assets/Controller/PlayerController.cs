@@ -93,11 +93,12 @@ public class PlayerController : MonoBehaviour
             {
                 var stream = tcpClient.GetStream();
                 await recvbuffer.WriteAsync(stream);
-                var packets = await recvparser.ParseAsync();
+                //var packets = await recvparser.ParseAsync();
+                var packets = recvparser.Parse();
                 foreach (var packet in packets)
                 {
                     var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                    Debug.Log($"[控制器] 接收到播放器消息 {message}， 压入消息队列？");
+                    Debug.Log($"[控制器] 接收到播放器消息，压入消息队列。更多↓ \n{message}");
                     Enqueue(message);
                 }
             }
@@ -119,7 +120,7 @@ public class PlayerController : MonoBehaviour
         tcpClient = null;
         isRun = false;
         // 此函数可能在非主线程执行，需要
-        Post(() => 
+        Post(() =>
         {
             connectButton.GetComponentInChildren<Text>().text = "连接服务器";
             playAndPause.GetComponentInChildren<Text>().text = "Play";
@@ -186,7 +187,7 @@ public class PlayerController : MonoBehaviour
         if (null != m)
         {
             VideoItem i = JsonUtility.FromJson<VideoItem>(m.cmdContext);
-            Debug.Log($"{nameof(PlayerController)}: 确认播放 ：{i.name}\n文件备注 ：{i.description}");
+            Debug.Log($"{nameof(PlayerController)}: 确认播放  {m.id} {i.name}\n文件备注 ：{i.description}");
         }
         else
         {
@@ -226,7 +227,10 @@ public class PlayerController : MonoBehaviour
         {
             currentPlayFile = video.name;
             Debug.Log($"正在请求播放 {currentPlayFile}...");
-            SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Play, cmdContext = currentPlayFile }));
+            for (int i = 0; i < 500; i++)
+            {
+                SendNetMessage(JsonUtility.ToJson(new Message {id=i, command = Command.Play, cmdContext = currentPlayFile }));
+            }
         }
         else
         {

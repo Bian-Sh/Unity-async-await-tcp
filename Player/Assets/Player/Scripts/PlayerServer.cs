@@ -80,13 +80,15 @@ public class PlayerServer : MonoBehaviour
 
     private void OnPlayRequest(string obj)
     {
-        Debug.Log("播放器收到开始播放指令！");
         Message message = JsonUtility.FromJson<Message>(obj);
         var item = playList.items.Find(v => v.name == message.cmdContext);
+        Debug.Log($"播放器收到开始播放指令！id = {message.id}");
         if (currentPlayFile == message.cmdContext)
         {
-            player.Play();
-
+            if (!player.isPlaying)
+            {
+                player.Play();
+            }
         }
         else
         {
@@ -105,7 +107,7 @@ public class PlayerServer : MonoBehaviour
             }
         }
         //向所有控制器同步视频被播放的状态
-        TCPServer.BroadcastToClients(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new Message { command = Command.Play, cmdContext = JsonUtility.ToJson(item) })));
+        TCPServer.BroadcastToClients(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new Message {id=message.id, command = Command.Play, cmdContext = JsonUtility.ToJson(item) })));
     }
 
     private void RefreshFile()//刷新文件列表

@@ -128,7 +128,9 @@ public class TCPServer : IDisposable
             var byteCount = await recvbuffer.WriteAsync(stream);
             stream.Flush();
             if (byteCount == 0) break;//断线了
-            var packets = await recvparser.ParseAsync();
+            //var packets = await recvparser.ParseAsync();
+            var packets = recvparser.Parse();
+
             foreach (var packet in packets)
             {
                 var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
