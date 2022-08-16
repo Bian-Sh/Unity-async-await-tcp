@@ -18,8 +18,9 @@ public class PlayerController : MonoBehaviour
     private void Awake()
     {
         channel = new TCPChannel();
-        channel.OnClosed += OnChannelClosed;
-        channel.OnDisconnected += OnDisconnected;
+        channel.OnDisconnected += OnChannelClosed;
+        channel.OnEstablished += OnEstablished;
+        channel.OnEstablishFailed += OnEstablishFailed;
     }
     void Start()
     {
@@ -34,24 +35,27 @@ public class PlayerController : MonoBehaviour
         EventManager.AddListener(Command.Stop, OnStopResponse);
         EventManager.AddListener(Command.PlayList, OnPlayListResponse);
     }
-    #region TCP 
+    #region TCPChannel Interaction
+    private void OnEstablishFailed() => Debug.Log($"{nameof(PlayerController)}: 握手失败！");
+    private void OnEstablished()=> Debug.Log($"{nameof(PlayerController)}: 握手成功！");
     private void OnChannelClosed()
     {
+        Debug.Log($"{nameof(PlayerController)}: TCP 断开连接 ...");
         connectButton.GetComponentInChildren<Text>().text = "连接服务器";
         playAndPause.GetComponentInChildren<Text>().text = "Play";
         isPlay = false;
     }
-    private void OnDisconnected() => Debug.Log($"{nameof(PlayerController)}:  TCP 连接意外中断！");
     private void SendNetMessage(string v) => channel.SendMessage(v);
     private void OnApplicationQuit() => channel.Close();
     private async void OnConnectOrDisConnectRequired()
     {
         connectButton.interactable = false;
         var text = connectButton.GetComponentInChildren<Text>();
+
         if (!channel.IsRun)
         {
             text.text = "连接中...";
-            var isConnectedSuccess = await channel.ConnectAsTcpClientAsync("127.0.0.1", 8888);
+            var isConnectedSuccess = await channel.ConnectAsync("127.0.0.1", 8888);
             text.text = isConnectedSuccess ? "已连接" : "连接服务器";
         }
         else
@@ -132,7 +136,7 @@ public class PlayerController : MonoBehaviour
     private void Stop()//停止播放
     {
         Debug.Log("请求停止播放视频！");
-        SendMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
+        SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
     }
 
     private void Pause()

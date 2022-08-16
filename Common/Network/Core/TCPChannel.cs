@@ -10,32 +10,26 @@ namespace zFramework.Network
     public class TCPChannel
     {
         public Action OnEstablished;
-        public Action OnClosed;
+        public Action OnEstablishFailed;
         public Action OnDisconnected;
 
         TcpClient tcpClient;
         CircularBuffer recvbuffer;
         PacketParser recvparser;
         public bool IsRun { get; private set; }
-
-        public TCPChannel()
+        public void Close()
         {
+            IsRun = false;
+            tcpClient?.Close();
+            tcpClient = null;
+        }
+
+        public async Task<bool> ConnectAsync(string ip, int port)
+        {
+            IsRun = true;
             tcpClient = new TcpClient();
             recvbuffer = new CircularBuffer();
             recvparser = new PacketParser(recvbuffer);
-        }
-
-        public void Close()
-        {
-            tcpClient?.Close();
-            tcpClient = null;
-            IsRun = false;
-            Post(OnClosed);// 事件需要在主线程执行
-        }
-
-        public async Task<bool> ConnectAsTcpClientAsync(string ip, int port)
-        {
-            IsRun = true;
             tcpClient.NoDelay = true;
             try
             {
@@ -47,6 +41,7 @@ namespace zFramework.Network
             {
                 Debug.LogError($"{nameof(TCPChannel)}: [控制器] 连接到播放器失败 {e}");
                 Close();
+                Post(OnEstablishFailed); //发布握手失败事件
             }
             return IsRun;
         }
@@ -82,16 +77,16 @@ namespace zFramework.Network
             Debug.Log("开启数据读逻辑");
             try
             {
-                while (IsRun && tcpClient.IsOnline())
+                while (IsRun&& tcpClient.IsOnline())
                 {
-                    var stream = tcpClient.GetStream();
-                    await recvbuffer.WriteAsync(stream);
-                    var packets = await recvparser.ParseAsync();
-                    foreach (var packet in packets)
-                    {
-                        var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                        Enqueue(message);
-                    }
+                        var stream = tcpClient.GetStream();
+                        await recvbuffer.WriteAsync(stream);
+                        var packets = await recvparser.ParseAsync();
+                        foreach (var packet in packets)
+                        {
+                            var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
+                            Enqueue(message);
+                        }
                 }
             }
             catch (Exception e)
@@ -101,8 +96,8 @@ namespace zFramework.Network
             finally
             {
                 Debug.LogError($"{nameof(TCPChannel)}: 与服务器断开连接！");
-                Post(OnDisconnected);
                 Close();
+                Post(OnDisconnected); //发布断线事件
             }
         }
     }

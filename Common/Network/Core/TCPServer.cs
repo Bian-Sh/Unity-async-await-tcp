@@ -52,7 +52,7 @@ namespace zFramework.Network
             {
                 try
                 {
-                    var client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
+                    var client = await listener.AcceptTcpClientAsync();
                     _ = Task.Run(() => OnConnectClientAsync(client));
                     //通过该语句，程序将返回主线程上下文，其他地方一个意思
                     Post(() => OnClientConnected.Invoke(client));
