@@ -92,14 +92,14 @@ namespace zFramework.Misc
                 messages.Enqueue(message);
                 if (messages.Count > 50)
                 {
-                    Debug.LogWarning($"{nameof(Loom)}:请控制消息推送速率，消息队列中未处理的数据量已超 50 个 {messages.Count} ！");
+                    Debug.LogWarning($"{nameof(MessageQueue)}:请控制消息推送速率，消息队列中未处理的数据量已超 50 个 {messages.Count} ！");
                 }
             }
         }
 
         private static void Dispatcher(string message)
         {
-            // 这里必须使用Try catch ，避免用户逻辑异常被外部捕捉而导致网络意外断开
+            // 这里必须使用Try catch ，避免用户逻辑异常被外部捕捉而导致消息队列异常
             try
             {
                 EventManager.Invoke(JsonUtility.FromJson<Message>(message));

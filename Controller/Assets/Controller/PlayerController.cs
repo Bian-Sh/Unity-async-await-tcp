@@ -1,33 +1,26 @@
-﻿using System;
-using System.Linq;
-using System.Net.Sockets;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
-using static zFramework.Misc.MessageQueue;
-using static zFramework.Misc.Loom;
 using zFramework.Events;
+using zFramework.Network;
 
 public class PlayerController : MonoBehaviour
 {
-
     public Button playAndPause;
     public Button stop;
     public Button connectButton; //连接与断开连接
-
     public Dropdown dropdown;
-
     public bool isPlay = false;
     public PlayList playList;
     private string currentPlayFile;
-    TcpClient tcpClient;
-    bool isRun = false;
 
-
-    CircularBuffer recvbuffer = new CircularBuffer();
-    PacketParser recvparser;
-
+    TCPChannel channel;
+    private void Awake()
+    {
+        channel = new TCPChannel();
+        channel.OnClosed += OnChannelClosed;
+        channel.OnDisconnected += OnDisconnected;
+    }
     void Start()
     {
         playAndPause.onClick.AddListener(OnPlayAndPauseButtonClicked);
@@ -41,120 +34,34 @@ public class PlayerController : MonoBehaviour
         EventManager.AddListener(Command.Stop, OnStopResponse);
         EventManager.AddListener(Command.PlayList, OnPlayListResponse);
     }
-
-
+    #region TCP 
+    private void OnChannelClosed()
+    {
+        connectButton.GetComponentInChildren<Text>().text = "连接服务器";
+        playAndPause.GetComponentInChildren<Text>().text = "Play";
+        isPlay = false;
+    }
+    private void OnDisconnected() => Debug.Log($"{nameof(PlayerController)}:  TCP 连接意外中断！");
+    private void SendNetMessage(string v) => channel.SendMessage(v);
+    private void OnApplicationQuit() => channel.Close();
     private async void OnConnectOrDisConnectRequired()
     {
-
         connectButton.interactable = false;
         var text = connectButton.GetComponentInChildren<Text>();
-        if (!isRun)
+        if (!channel.IsRun)
         {
             text.text = "连接中...";
-            var isConnectedSuccess = await ConnectAsTcpClientAsync();
+            var isConnectedSuccess = await channel.ConnectAsTcpClientAsync("127.0.0.1", 8888);
             text.text = isConnectedSuccess ? "已连接" : "连接服务器";
         }
         else
         {
-            tcpClient.Close();
-            tcpClient = null;
-            isRun = false;
-            connectButton.GetComponentInChildren<Text>().text = "连接服务器";
+            channel.Close();
         }
         connectButton.interactable = true;
     }
-
-    private async Task<bool> ConnectAsTcpClientAsync()
-    {
-        isRun = true;
-        tcpClient = new TcpClient();
-        recvparser = new PacketParser(recvbuffer);
-        tcpClient.NoDelay = true;
-        try
-        {
-            await tcpClient.ConnectAsync("127.0.0.1", 8888);
-            _ = Task.Run(StreamReadHandleAsync);
-
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"{nameof(PlayerController)}: [控制器] 连接到播放器失败 {e}");
-            Close();
-        }
-        return isRun;
-    }
-
-    async Task StreamReadHandleAsync()
-    {
-        Debug.Log("开启数据读逻辑");
-        try
-        {
-            while (isRun && tcpClient.IsOnline())
-            {
-                var stream = tcpClient.GetStream();
-                await recvbuffer.WriteAsync(stream);
-                //var packets = await recvparser.ParseAsync();
-                var packets = recvparser.Parse();
-                foreach (var packet in packets)
-                {
-                    var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                    Debug.Log($"[控制器] 接收到播放器消息，压入消息队列。更多↓ \n{message}");
-                    Enqueue(message);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"{nameof(PlayerController)}: [控制器] 接收消息失败: {e}");
-        }
-        finally
-        {
-            Debug.LogError($"{nameof(PlayerController)}: 与服务器断开连接！");
-            Close();
-        }
-    }
-
-    void Close()
-    {
-        tcpClient?.Close();
-        tcpClient = null;
-        isRun = false;
-        // 此函数可能在非主线程执行，需要
-        Post(() =>
-        {
-            connectButton.GetComponentInChildren<Text>().text = "连接服务器";
-            playAndPause.GetComponentInChildren<Text>().text = "Play";
-            isPlay = false;
-        });
-    }
-
-    void SendNetMessage(string str)
-    {
-        try
-        {
-            if (isRun)
-            {
-                var networkStream = tcpClient.GetStream();
-                var data = Encoding.UTF8.GetBytes(str);
-                byte[] size = BytesHelper.GetBytes(data.Length);
-                var temp = new byte[size.Length + data.Length];
-                Buffer.BlockCopy(size, 0, temp, 0, size.Length);
-                Buffer.BlockCopy(data, 0, temp, size.Length, data.Length);
-                networkStream.Write(temp, 0, temp.Length);
-                networkStream.Flush();
-                Debug.Log($"[控制器] 发送到播放器消息 {str}!");
-            }
-            else
-            {
-                Debug.LogWarning($"{nameof(PlayerController)}: 已经与服务器断开连接！");
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[控制器] 发送消息到播放器错误 {e}!");
-        }
-    }
-
+    #endregion
+    #region Response 
     private void OnPlayListResponse(string obj)
     {
         Message m = JsonUtility.FromJson<Message>(obj);
@@ -194,20 +101,9 @@ public class PlayerController : MonoBehaviour
             Debug.LogWarning($"{nameof(PlayerController)}: 播放失败 ! ");
         }
     }
-
-    private void OnDropDownValueChanged(int arg0)
-    {
-        Play();
-    }
-
-
+    #endregion
     #region PlayerBehaviours
-
-    private void Stop()//停止播放
-    {
-        Debug.Log("请求停止播放视频！");
-        SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
-    }
+    private void OnDropDownValueChanged(int arg0) => Play();
     private void Play()
     {
         if (dropdown.options.Count == 0)
@@ -229,13 +125,18 @@ public class PlayerController : MonoBehaviour
             Debug.Log($"正在请求播放 {currentPlayFile}...");
             for (int i = 0; i < 500; i++)
             {
-                SendNetMessage(JsonUtility.ToJson(new Message {id=i, command = Command.Play, cmdContext = currentPlayFile }));
+                SendNetMessage(JsonUtility.ToJson(new Message { id = i, command = Command.Play, cmdContext = currentPlayFile }));
             }
         }
         else
         {
             Debug.Log($"请求的文件 : {dropdown.captionText.text} 不在播放列表");
         }
+    }
+    private void Stop()//停止播放
+    {
+        Debug.Log("请求停止播放视频！");
+        channel.SendMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
     }
 
     private void Pause()
@@ -259,10 +160,6 @@ public class PlayerController : MonoBehaviour
             Debug.Log("列表更新完毕！");
         }
     }
-
-    #endregion
-
-
     private void OnPlayAndPauseButtonClicked()//播放/暂停
     {
         if (isPlay)
@@ -274,23 +171,7 @@ public class PlayerController : MonoBehaviour
             Play();
         }
     }
-    private void OnDestroy()
-    {
-        isRun = false;
-        //软件退出主动关闭socket
-        tcpClient?.Close();
-    }
+
+    #endregion
 }
 
-/// <summary>
-/// TcpClient.Connected: 属性获取截止到最后一次 I/O 操作时的 Client 套接字的连接状态。
-/// C# TcpClient在连接成功后，对方关闭了网络连接是不能及时的检测到断开的，
-/// 故而使用此扩展检测连接状态
-/// </summary>
-public static class TcpClientEx
-{
-    public static bool IsOnline(this TcpClient c)
-    {
-        return !((c.Client.Poll(1000, SelectMode.SelectRead) && (c.Client.Available == 0)) || !c.Client.Connected);
-    }
-}

@@ -1,11 +1,5 @@
 {
   "dependencies": {
-    "com.bshsf.remotecontrollercommoncode": {
-      "version": "file:../../Common/MessageHandler",
-      "depth": 0,
-      "source": "local",
-      "dependencies": {}
-    },
     "com.unity.collab-proxy": {
       "version": "1.15.15",
       "depth": 0,
@@ -99,6 +93,18 @@
     },
     "com.yasirkula.ingamedebugconsole": {
       "version": "file:../../Common/UnityIngameDebugConsole",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
+    "com.zframework.commoncode": {
+      "version": "file:E:/Unity/Project/Unity-async-await-tcp/Common/MessageModel",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
+    "com.zframework.network": {
+      "version": "file:E:/Unity/Project/Unity-async-await-tcp/Common/Network",
       "depth": 0,
       "source": "local",
       "dependencies": {}

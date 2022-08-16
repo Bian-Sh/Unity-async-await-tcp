@@ -145,12 +145,6 @@ public class CircularBuffer : Stream
         {
             throw new Exception($"bufferList length < coutn, buffer length: {buffer.Length} {offset} {count}");
         }
-        // long length = Length;
-        // if (length < count)
-        // {
-        //     count = (int)length;
-        // }
-
         int alreadyCopyCount = 0;
         while (alreadyCopyCount < count)
         {
@@ -169,7 +163,6 @@ public class CircularBuffer : Stream
                 RemoveFirst();
             }
         }
-
         return count;
     }
 
