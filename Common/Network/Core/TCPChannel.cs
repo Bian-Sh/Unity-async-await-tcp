@@ -86,12 +86,10 @@ namespace zFramework.Network
                 {
                     var stream = tcpClient.GetStream();
                     await recvbuffer.WriteAsync(stream);
-                    //var packets = await recvparser.ParseAsync();
-                    var packets = recvparser.Parse();
+                    var packets = await recvparser.ParseAsync();
                     foreach (var packet in packets)
                     {
                         var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                        Debug.Log($"[控制器] 接收到播放器消息，压入消息队列。更多↓ \n{message}");
                         Enqueue(message);
                     }
                 }

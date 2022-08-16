@@ -98,13 +98,13 @@
       "dependencies": {}
     },
     "com.zframework.commoncode": {
-      "version": "file:E:/Unity/Project/Unity-async-await-tcp/Common/MessageModel",
+      "version": "file:../../Common/MessageModel",
       "depth": 0,
       "source": "local",
       "dependencies": {}
     },
     "com.zframework.network": {
-      "version": "file:E:/Unity/Project/Unity-async-await-tcp/Common/Network",
+      "version": "file:../../Common/Network",
       "depth": 0,
       "source": "local",
       "dependencies": {}

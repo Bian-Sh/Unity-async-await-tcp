@@ -94,7 +94,6 @@ public class PlayerController : MonoBehaviour
         if (null != m)
         {
             VideoItem i = JsonUtility.FromJson<VideoItem>(m.cmdContext);
-            Debug.Log($"{nameof(PlayerController)}: 确认播放  {m.id} {i.name}\n文件备注 ：{i.description}");
         }
         else
         {
