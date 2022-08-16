@@ -122,10 +122,7 @@ public class PlayerController : MonoBehaviour
         {
             currentPlayFile = video.name;
             Debug.Log($"正在请求播放 {currentPlayFile}...");
-            for (int i = 0; i < 500; i++)
-            {
-                SendNetMessage(JsonUtility.ToJson(new Message { id = i, command = Command.Play, cmdContext = currentPlayFile }));
-            }
+            SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Play, cmdContext = currentPlayFile }));
         }
         else
         {
@@ -135,7 +132,7 @@ public class PlayerController : MonoBehaviour
     private void Stop()//停止播放
     {
         Debug.Log("请求停止播放视频！");
-        channel.SendMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
+        SendMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
     }
 
     private void Pause()

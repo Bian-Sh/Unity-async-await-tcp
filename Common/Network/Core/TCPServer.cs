@@ -26,8 +26,6 @@ namespace zFramework.Network
         #endregion
         CircularBuffer recvbuffer = new CircularBuffer();
         PacketParser recvparser;
-
-
         IPEndPoint endpoint;
         TcpListener listener;
         List<TcpClient> clients = new List<TcpClient>();
@@ -38,8 +36,6 @@ namespace zFramework.Network
             this.endpoint = endpoint;
             recvparser = new PacketParser(recvbuffer);
         }
-
-
         public async Task ListenAsync()
         {
             lock (this)
@@ -75,7 +71,6 @@ namespace zFramework.Network
                 }
             }
         }
-
         public void Stop()
         {
             //先通知在线的客户端
@@ -117,8 +112,6 @@ namespace zFramework.Network
                 clients.Remove(client);
             }
         }
-
-
         async Task HandleNetworkStreamAsync(TcpClient client)
         {
             while (client.IsOnline())
@@ -128,12 +121,9 @@ namespace zFramework.Network
                 stream.Flush();
                 if (byteCount == 0) break;//断线了
                 var packets = await recvparser.ParseAsync();
-                //var packets = recvparser.Parse();
-
                 foreach (var packet in packets)
                 {
                     var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                    Debug.Log($"[播放器] 接收到控制器消息 {message},将消息压入消息队列！");
                     Enqueue(message);
                 }
             }
@@ -145,7 +135,6 @@ namespace zFramework.Network
         /// <param name="data"></param>
         public void BroadcastToClients(byte[] data)
         {
-            Debug.Log($"Clients.Count : {Clients.Count}");
             foreach (var c in Clients)
             {
                 SendMessageToClient(c, data);
