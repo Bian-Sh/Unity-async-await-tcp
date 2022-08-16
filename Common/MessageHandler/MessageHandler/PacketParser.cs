@@ -45,14 +45,14 @@ public class PacketParser
     public List<Packet> Parse()
     {
         List<Packet> packets = new List<Packet>();
-        while (state == ParserState.PacketSize && buffer.Length >= 2 || state == ParserState.PacketBody && buffer.Length >= packet.Length)
+        while (state == ParserState.PacketSize && buffer.Length >= 4 || state == ParserState.PacketBody && buffer.Length >= packet.Length)
         {
             switch (state)
             {
                 case ParserState.PacketSize:
                     packet = new Packet(capacity);
                     buffer.Read(packet.Bytes, 0, sizeof(int));
-                    packet.Length = BytesHelper.ToUInt16(packet.Bytes, 0);
+                    packet.Length = BytesHelper.ToInt32(packet.Bytes, 0);
                     if (packet.Length > capacity)
                     {
                         throw new Exception($"packet too large, size: {packet.Length}");
