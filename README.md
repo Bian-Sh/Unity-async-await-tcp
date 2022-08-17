@@ -30,10 +30,8 @@
 
 - Including communication message data model, simple event system, UnitySynchronizationContext extension
 - The common components of the client and the server managed in the form of UnityPackage facilitate the synchronization of the modification of the message data model at both ends.
+- network module 
 
-> UniTask
-- The recommended async / await enhancement plug-in can easily return to the main thread
-- Do the same thing as Task, but adapt to Unity and lighter.
 
 # 3. Demonstrate
 
@@ -44,10 +42,10 @@
 # 1. 简要说明
 1. 测试基于async/await(TAP) 模式下的TCP 通信。
 2. 这个Demo 是一个基于TCP通信的Remotecontroller for video player，实现了客户端控制服务端视频播放器的播放、暂停、停止，也实现了MP4文件备注信息的获取。
-3. Windows10 & Unity 2019.2.12f1 
+3. Windows10 & Unity 2020.2.12f1  （使用较多新语法糖）
 4. 加入了环形缓冲器和简单的分包策略（记录包体长度的包头+包体）避免了写死缓存尺寸带来的消息被分割的异常。
 5. 加强了断线提醒，逻辑可能不是最优，但至少是有。
-6. 友情提示： Task 会按需开线程，时刻关注上下文线程是一个很好的习惯,**API**:``System.Threading.Thread.CurrentThread.ManagedThreadId`` ,避免在非主线程中使用Unity 组件导致的异常。
+6. 友情提示： Task 会按需开线程，时刻关注上下文线程是一个很好的习惯,**API**:``System.Threading.Thread.CurrentThread.ManagedThreadId`` ,避免在非主线程中使用Unity 组件导致的异常，在本示例中使用 LOOM 跨线程推送数据。
 
 # 2. 工程结构
 > Controller
@@ -62,12 +60,10 @@
 - 本Demo提供了测试视频，但请勿用于商业用途
 
 > Common 
-- 包括通信消息数据模型，简易事件系统，UnitySynchronizationContext 扩展
+- 包括通信消息数据模型，简易事件系统，UnitySynchronizationContext （Loom）扩展
 - 以UnityPackage 的形式管理的客户端与服务端的公共组件，方便了消息数据模型一端修改两端同步。
+- 以 UPM 包管理的 网络模块
 
-> UniTask
-- 推荐的 async / await 增强插件，可以很方便的返回主线程了
-- 跟 Task 做一样的事情，只是更加适配Unity更加轻量化。
  
 
 # 3. 演示
