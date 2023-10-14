@@ -10,7 +10,7 @@ using UnityEditor;
 #endif
 using UnityEngine;
 using UnityEngine.LowLevel;
-namespace zFramework.Misc
+namespace zFramework.Network.Misc
 {
     public static class Loom
     {
@@ -82,7 +82,14 @@ namespace zFramework.Misc
         {
             if (SynchronizationContext.Current == context)
             {
-                task?.Invoke();
+                try
+                {
+                    task?.Invoke();
+                }
+                catch (Exception e)
+                {
+                    Debug.Log($"{nameof(Loom)}:  封送的任务执行过程中发现异常，请确认: {e}");
+                }
             }
             else
             {

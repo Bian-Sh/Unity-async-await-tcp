@@ -8,9 +8,35 @@ namespace zFramework.Network
     /// </summary>
     public static class TcpClientEx
     {
-        public static bool IsOnline(this TcpClient c)
+        public static bool IsOnline(this TcpClient client)
         {
-            return !((c.Client.Poll(1000, SelectMode.SelectRead) && (c.Client.Available == 0)) || !c.Client.Connected);
+            try
+            {
+                if (client != null && client.Client != null && client.Client.Connected)
+                {
+                    /* 根据 Poll 的文档：
+                        * 当将 SelectMode.SelectRead 作为参数传递给 Poll 方法时，它将返回
+                        * -如果调用了 Socket.Listen(Int32) 并且连接正在等待，则为 true；
+                        * -如果有数据可供读取，则为 true；
+                        * -如果连接已被关闭、重置或终止，则为 true；
+                        * 否则，返回 false
+                        */
+
+                    // Socket 已连接并且已被标记为非阻塞（使用 Socket.Blocking = false）
+                    // 但不能保证 Socket 会保持连接状态
+                    return !(client.Client.Poll(1, SelectMode.SelectRead) && client.Client.Available == 0);
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            catch (SocketException se)
+            {
+                // 在这里编写你的异常处理代码。
+                UnityEngine.Debug.Log($"{nameof(TcpClientEx)}:  {se}");
+                return false;
+            }
         }
     }
 }

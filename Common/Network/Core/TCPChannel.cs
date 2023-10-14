@@ -1,41 +1,50 @@
-﻿using System;
-using System.Net.Sockets;
-using System.Text;
-using System.Threading.Tasks;
-using UnityEngine;
-using static zFramework.Misc.Loom;
-using static zFramework.Misc.MessageQueue;
-namespace zFramework.Network
+﻿namespace zFramework.Network
 {
+    using System;
+    using System.Net.Sockets;
+    using System.Text;
+    using System.Threading.Tasks;
+    using UnityEngine;
+    using static Misc.Loom;
+
     public class TCPChannel
     {
         public Action OnEstablished;
         public Action OnEstablishFailed;
         public Action OnDisconnected;
+        public bool IsConnected { get; private set; }
 
-        TcpClient tcpClient;
-        CircularBuffer recvbuffer;
-        PacketParser recvparser;
-        public bool IsRun { get; private set; }
-        public void Close()
+        public TCPChannel(string ip, int port)
         {
-            IsRun = false;
-            tcpClient?.Close();
-            tcpClient = null;
-        }
-
-        public async Task<bool> ConnectAsync(string ip, int port)
-        {
-            IsRun = true;
-            tcpClient = new TcpClient();
+            this.ip = ip;
+            this.port = port;
+            var client = new TcpClient();
+            client.NoDelay = true;
+            session = new Session(client);
             recvbuffer = new CircularBuffer();
             recvparser = new PacketParser(recvbuffer);
-            tcpClient.NoDelay = true;
+        }
+
+        public async Task<bool> ConnectAsync()
+        {
             try
             {
-                await tcpClient.ConnectAsync(ip, port);
+                if (IsConnected)
+                {
+                    return true;
+                }
+                await session.ConnectAsync(ip, port);
+                IsConnected = true;
                 Post(OnEstablished); //发布握手成功事件
-                _ = Task.Run(StreamReadHandleAsync);
+                try
+                {
+                    _ = Task.Run(session.HandleNetworkStreamAsync);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"{nameof(TCPChannel)}: [控制器] 接收消息失败: {e}");
+                    DisaliveSessionHandle(session);
+                }
             }
             catch (Exception e)
             {
@@ -43,24 +52,16 @@ namespace zFramework.Network
                 Close();
                 Post(OnEstablishFailed); //发布握手失败事件
             }
-            return IsRun;
+            return IsConnected;
         }
 
-        public void SendMessage(string str)
+        public void Send(byte[] datas)
         {
             try
             {
-                if (IsRun)
+                if (IsConnected)
                 {
-                    var networkStream = tcpClient.GetStream();
-                    var data = Encoding.UTF8.GetBytes(str);
-                    byte[] size = BytesHelper.GetBytes(data.Length);
-                    var temp = new byte[size.Length + data.Length];
-                    Buffer.BlockCopy(size, 0, temp, 0, size.Length);
-                    Buffer.BlockCopy(data, 0, temp, size.Length, data.Length);
-                    networkStream.Write(temp, 0, temp.Length);
-                    networkStream.Flush();
-                    Debug.Log($"[控制器] 发送到播放器消息 {str}!");
+                    session.Send(datas);
                 }
                 else
                 {
@@ -70,35 +71,27 @@ namespace zFramework.Network
             catch (Exception e)
             {
                 Debug.LogError($"[控制器] 发送消息到播放器错误 {e}!");
+                DisaliveSessionHandle(session);
             }
         }
-        async Task StreamReadHandleAsync()
+
+        public void Close()
         {
-            Debug.Log("开启数据读逻辑");
-            try
-            {
-                while (IsRun&& tcpClient.IsOnline())
-                {
-                        var stream = tcpClient.GetStream();
-                        await recvbuffer.WriteAsync(stream);
-                        var packets = await recvparser.ParseAsync();
-                        foreach (var packet in packets)
-                        {
-                            var message = Encoding.UTF8.GetString(packet.Bytes, 0, packet.Length);
-                            Enqueue(message);
-                        }
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"{nameof(TCPChannel)}: [控制器] 接收消息失败: {e}");
-            }
-            finally
-            {
-                Debug.LogError($"{nameof(TCPChannel)}: 与服务器断开连接！");
-                Close();
-                Post(OnDisconnected); //发布断线事件
-            }
+            IsConnected = false;
+            session.Dispose();
         }
+
+        private void DisaliveSessionHandle(Session session)
+        {
+            IsConnected = false;
+            session.Close();
+            Post(OnDisconnected); //发布断线事件
+        }
+
+        readonly string ip;
+        readonly int port;
+        readonly Session session;
+        readonly CircularBuffer recvbuffer;
+        readonly PacketParser recvparser;
     }
 }

@@ -1,24 +1,23 @@
 ﻿// Copyright (c) https://github.com/Bian-Sh
 // Licensed under the MIT License.
 
-using System;
-using System.Collections.Concurrent;
-using System.Linq;
-using System.Threading;
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.PackageManager.Requests;
-#endif
-using UnityEngine;
-using UnityEngine.LowLevel;
-using zFramework.Events;
-
-namespace zFramework.Misc
+namespace zFramework.Network.Misc
 {
+    using System;
+    using System.Collections.Concurrent;
+    using System.Linq;
+    using System.Threading;
+#if UNITY_EDITOR
+    using UnityEditor;
+#endif
+    using UnityEngine;
+    using UnityEngine.LowLevel;
+    using zFramework.Network.Events;
+
     public static class MessageQueue
     {
         static SynchronizationContext context;
-        static readonly ConcurrentQueue<string> messages = new ConcurrentQueue<string>();
+        static readonly ConcurrentQueue<MessageInfo> messages = new ConcurrentQueue<MessageInfo>();
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Install()
         {
@@ -80,16 +79,19 @@ namespace zFramework.Misc
         /// <summary>
         ///  封送计划在主线程中执行的消息
         /// </summary>
+        /// <param name="session">消息来源</param>
         /// <param name="message">要推送的消息</param>
-        public static void Enqueue(string message)
+        public static void Enqueue(Session session, string message)
         {
+            var info = new MessageInfo { session = session, cmdContext = message };
+
             if (SynchronizationContext.Current == context)
             {
-                Dispatcher(message);
+                Dispatcher(info);
             }
             else
             {
-                messages.Enqueue(message);
+                messages.Enqueue(info);
                 if (messages.Count > 50)
                 {
                     Debug.LogWarning($"{nameof(MessageQueue)}:请控制消息推送速率，消息队列中未处理的数据量已超 50 个 {messages.Count} ！");
@@ -97,12 +99,13 @@ namespace zFramework.Misc
             }
         }
 
-        private static void Dispatcher(string message)
+        private static void Dispatcher(MessageInfo message)
         {
             // 这里必须使用Try catch ，避免用户逻辑异常被外部捕捉而导致消息队列异常
             try
             {
-                EventManager.Invoke(JsonUtility.FromJson<Message>(message));
+                var obj = JsonUtility.FromJson<Message>(message.cmdContext);
+                EventManager.Invoke(message.session, obj);
             }
             catch (Exception e)
             {
@@ -116,6 +119,12 @@ namespace zFramework.Misc
             {
                 Dispatcher(message);
             }
+        }
+
+        struct MessageInfo
+        {
+            public Session session;
+            public string cmdContext;
         }
     }
 }
