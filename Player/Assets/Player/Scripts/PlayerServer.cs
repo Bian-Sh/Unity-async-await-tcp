@@ -8,7 +8,7 @@ using System.Net;
 using System.Text;
 using System.Net.Sockets;
 using System.Threading.Tasks;
-using zFramework.Events;
+using zFramework.Network.Events;
 using zFramework.Network;
 
 public class PlayerServer : MonoBehaviour
@@ -16,7 +16,7 @@ public class PlayerServer : MonoBehaviour
     public VideoPlayer player;
     private string currentPlayFile = string.Empty;
     private PlayList playList;
-    TCPServer TCPServer;
+    TCPServer server;
     private void Awake()
     {
         RefreshFile();
@@ -24,7 +24,7 @@ public class PlayerServer : MonoBehaviour
 
     void Start()
     {
-        TCPServer = new TCPServer(new IPEndPoint(IPAddress.Parse("127.0.0.1"), 8888));
+        server = new TCPServer("127.0.0.1", 8888);
         player.loopPointReached += Player_loopPointReached;
         EventManager.AddListener(Command.Play, OnPlayRequest);
         EventManager.AddListener(Command.Pause, OnPauseRequest);
@@ -32,58 +32,64 @@ public class PlayerServer : MonoBehaviour
         EventManager.AddListener(Command.PlayList, OnPlayListResponse);
 
         player.targetTexture.Release();
-        TCPServer.OnClientConnected.AddListener(OnClientConnected);
-        _ = Task.Run(TCPServer.ListenAsync); //此处务必使用 Task 执行，否则这个Awake 方法会回不到主线程，如果下面还有逻辑也不会执行咯
+        server.OnClientConnected.AddListener(OnClientConnected);
+        _ = Task.Run(server.ListenAsync); //此处务必使用 Task 执行，否则这个Awake 方法会回不到主线程，如果下面还有逻辑也不会执行咯
     }
 
 
-    private void OnClientConnected(TcpClient arg0)
+    private void OnClientConnected(Session session)
     {
         string pl = JsonUtility.ToJson(playList);
         Message message = new Message { command = Command.PlayList, cmdContext = pl };
-        TCPServer.SendMessageToClient(arg0, Encoding.UTF8.GetBytes(JsonUtility.ToJson(message)));
+        server.Send(session, Encoding.UTF8.GetBytes(JsonUtility.ToJson(message)));
     }
 
-    private void OnPlayListResponse(string obj)
+    private void OnPlayListResponse(Session session, Message message)
     {
         Debug.Log("[播放器] 向控制器发送播放列表");
         string pl = JsonUtility.ToJson(playList);
-        Message message = new Message { command = Command.PlayList, cmdContext = pl };
-        TCPServer.BroadcastToClients(Encoding.UTF8.GetBytes(JsonUtility.ToJson(message)));
+        message = new Message { command = Command.PlayList, cmdContext = pl };
+
+        var datas = SerializeHelper.Serialize(message);
+        server.BroadcastOthers(session, datas);
     }
 
     private void Player_loopPointReached(VideoPlayer source)
     {
         Debug.Log("播放完毕！");
+        var datas = SerializeHelper.Serialize(new Message { command = Command.Stop });
+        server.Broadcast(datas);
     }
 
-    private void OnStopRequest(string obj)
+    private void OnStopRequest(Session session, Message message)
     {
-        Message msg = JsonUtility.FromJson<Message>(obj);
+        Debug.Log($"播放器收到 {session.RemoteEndPoint} 停止播放指令！");
         currentPlayFile = string.Empty;
-        Debug.Log("播放器收到停止播放指令！");
         player.Stop();
         player.targetTexture.Release();
-        //： 向所有控制器同步视频被停止的状态
-        TCPServer.BroadcastToClients(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new Message { command = Command.Stop })));
+        //向其他控制器同步转发视频被停止的状态
+        var datas = SerializeHelper.Serialize(message);
+        server.BroadcastOthers(session, datas);
     }
 
-    private void OnPauseRequest(string obj)
+    private void OnPauseRequest(Session session, Message message)
     {
-        Message msg = JsonUtility.FromJson<Message>(obj);
+        Debug.Log($"播放器收到 {session.RemoteEndPoint} 暂停播放指令！");
         if (!player.isPlaying) return;
-        Debug.Log("播放器收到暂停播放指令！");
         player.Pause();
-        //： 向所有控制器同步视频被暂停的状态
-        TCPServer.BroadcastToClients(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new Message { command = Command.Pause })));
+
+        // 向其他控制器同步视频被暂停的状态
+        var datas = SerializeHelper.Serialize(message);
+        server.BroadcastOthers(session, datas);
     }
 
-    private void OnPlayRequest(string obj)
+    private void OnPlayRequest(Session session, Message message)
     {
-        Message message = JsonUtility.FromJson<Message>(obj);
+        Debug.Log($"播放器 {session.RemoteEndPoint} 请求播放 {message.cmdContext}！");
         var item = playList.items.Find(v => v.name == message.cmdContext);
         if (currentPlayFile == message.cmdContext)
         {
+            // 从暂停状态恢复播放
             if (!player.isPlaying)
             {
                 player.Play();
@@ -103,10 +109,13 @@ public class PlayerServer : MonoBehaviour
                 var msg = $"找不到指定的文件 {message.cmdContext}";
                 Debug.LogError(msg);
                 //todo : 向请求的控制器发送错误消息
+                // 这里使用 RPC 最好了，直接返回播放结果，成功、失败以及错误
             }
         }
-        //向所有控制器同步视频被播放的状态
-        TCPServer.BroadcastToClients(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new Message {command = Command.Play, cmdContext = JsonUtility.ToJson(item) })));
+
+        //向其他控制器同步视频被播放的状态
+        var datas = SerializeHelper.Serialize(message);
+        server.BroadcastOthers(session, datas);
     }
 
     private void RefreshFile()//刷新文件列表
@@ -135,7 +144,7 @@ public class PlayerServer : MonoBehaviour
     }
     private void OnDestroy()
     {
-        TCPServer?.OnClientConnected.RemoveListener(OnClientConnected);
-        TCPServer?.Stop();
+        server?.OnClientConnected.RemoveListener(OnClientConnected);
+        server?.Stop();
     }
 }

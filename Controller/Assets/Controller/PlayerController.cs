@@ -1,11 +1,16 @@
 ﻿using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
-using zFramework.Events;
+using zFramework.Network.Events;
 using zFramework.Network;
 
 public class PlayerController : MonoBehaviour
 {
+    [SerializeField]
+    private string ip = "127.0.0.1";
+    [SerializeField]
+    private int port = 8888;
+
     public Button playAndPause;
     public Button stop;
     public Button connectButton; //连接与断开连接
@@ -15,13 +20,7 @@ public class PlayerController : MonoBehaviour
     private string currentPlayFile;
 
     TCPChannel channel;
-    private void Awake()
-    {
-        channel = new TCPChannel();
-        channel.OnDisconnected += OnChannelClosed;
-        channel.OnEstablished += OnEstablished;
-        channel.OnEstablishFailed += OnEstablishFailed;
-    }
+
     void Start()
     {
         playAndPause.onClick.AddListener(OnPlayAndPauseButtonClicked);
@@ -35,9 +34,18 @@ public class PlayerController : MonoBehaviour
         EventManager.AddListener(Command.Stop, OnStopResponse);
         EventManager.AddListener(Command.PlayList, OnPlayListResponse);
     }
+
+    private void OnDestroy()
+    {
+        EventManager.RemoveListener(Command.Play, OnPlayResponse);
+        EventManager.RemoveListener(Command.Pause, OnPauseResponse);
+        EventManager.RemoveListener(Command.Stop, OnStopResponse);
+        EventManager.RemoveListener(Command.PlayList, OnPlayListResponse);
+    }
+
     #region TCPChannel Interaction
     private void OnEstablishFailed() => Debug.Log($"{nameof(PlayerController)}: 握手失败！");
-    private void OnEstablished()=> Debug.Log($"{nameof(PlayerController)}: 握手成功！");
+    private void OnEstablished() => Debug.Log($"{nameof(PlayerController)}: 握手成功！");
     private void OnChannelClosed()
     {
         Debug.Log($"{nameof(PlayerController)}: TCP 断开连接 ...");
@@ -45,63 +53,81 @@ public class PlayerController : MonoBehaviour
         playAndPause.GetComponentInChildren<Text>().text = "Play";
         isPlay = false;
     }
-    private void SendNetMessage(string v) => channel.SendMessage(v);
-    private void OnApplicationQuit() => channel.Close();
+    private void SendNetMessage(Message message)
+    {
+        if (channel == null)
+        {
+            Debug.Log($"{nameof(PlayerController)}: 请先点击 “连接服务器” 构建 TCPChannel ！");
+            return;
+        }
+        var datas = SerializeHelper.Serialize(message);
+        channel?.Send(datas);
+    }
+
+    private void OnApplicationQuit() => channel?.Close();
+
+    private TCPChannel CreateTCPChannel()
+    {
+        channel = new TCPChannel(ip, port);
+        channel.OnDisconnected += OnChannelClosed;
+        channel.OnEstablished += OnEstablished;
+        channel.OnEstablishFailed += OnEstablishFailed;
+        return channel;
+    }
     private async void OnConnectOrDisConnectRequired()
     {
         connectButton.interactable = false;
         var text = connectButton.GetComponentInChildren<Text>();
 
-        if (!channel.IsRun)
+        if (channel == null)
         {
+            channel = CreateTCPChannel();
             text.text = "连接中...";
-            var isConnectedSuccess = await channel.ConnectAsync("127.0.0.1", 8888);
+            var isConnectedSuccess = await channel.ConnectAsync();
             text.text = isConnectedSuccess ? "已连接" : "连接服务器";
         }
         else
         {
             channel.Close();
+            channel = null;
+            text.text = "连接服务器";
         }
         connectButton.interactable = true;
     }
     #endregion
     #region Response 
-    private void OnPlayListResponse(string obj)
+    private void OnPlayListResponse(Session session, Message message)
     {
-        Message m = JsonUtility.FromJson<Message>(obj);
-        playList = JsonUtility.FromJson<PlayList>(m.cmdContext);
+        playList = JsonUtility.FromJson<PlayList>(message.cmdContext);
         UpdatePlayList();
     }
 
-    private void OnStopResponse(string obj)
+    private void OnStopResponse(Session session, Message message)
     {
-        Message m = JsonUtility.FromJson<Message>(obj);
+        Debug.Log($"{nameof(PlayerController)}: 其他控制器请求停止播放视频");
         isPlay = false;
         playAndPause.GetComponentInChildren<Text>().text = "Play";
         currentPlayFile = string.Empty;
-        Debug.LogWarning($"{nameof(PlayerController)}: 播放停止 !");
     }
 
-    private void OnPauseResponse(string obj)
+    private void OnPauseResponse(Session session, Message message)
     {
-        Message m = JsonUtility.FromJson<Message>(obj);
+        Debug.Log($"{nameof(PlayerController)}: 其他控制器请求暂停播放视频");
         isPlay = false;
         playAndPause.GetComponentInChildren<Text>().text = "Play";
-        Debug.LogWarning($"{nameof(PlayerController)}: 播放暂停 !");
     }
 
-    private void OnPlayResponse(string obj)
+    private void OnPlayResponse(Session session, Message message)
     {
-        Message m = JsonUtility.FromJson<Message>(obj);
+        Debug.Log($"{nameof(PlayerController)}: 其他控制器请求播放视频 {message.cmdContext}");
         isPlay = true;
         playAndPause.GetComponentInChildren<Text>().text = "Pause";
-        if (null != m)
+
+        // 设置 dropdown
+        var index = dropdown.options.FindIndex(v => v.text == message.cmdContext);
+        if (index != -1)
         {
-            VideoItem i = JsonUtility.FromJson<VideoItem>(m.cmdContext);
-        }
-        else
-        {
-            Debug.LogWarning($"{nameof(PlayerController)}: 播放失败 ! ");
+            dropdown.SetValueWithoutNotify(index);
         }
     }
     #endregion
@@ -124,9 +150,14 @@ public class PlayerController : MonoBehaviour
         VideoItem video = playList.items.Find(v => v.name == dropdown.captionText.text);
         if (null != video)
         {
+            isPlay = true;
+            playAndPause.GetComponentInChildren<Text>().text = "Pause";
+
             currentPlayFile = video.name;
             Debug.Log($"正在请求播放 {currentPlayFile}...");
-            SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Play, cmdContext = currentPlayFile }));
+
+            var message = new Message { command = Command.Play, cmdContext = currentPlayFile };
+            SendNetMessage(message);
         }
         else
         {
@@ -136,17 +167,22 @@ public class PlayerController : MonoBehaviour
     private void Stop()//停止播放
     {
         Debug.Log("请求停止播放视频！");
-        SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Stop }));
+        isPlay = false;
+        playAndPause.GetComponentInChildren<Text>().text = "Play";
+
+        var message = new Message { command = Command.Stop };
+        SendNetMessage(message);
     }
 
     private void Pause()
     {
         Debug.Log($"请求暂停视频播放！ ");
-        SendNetMessage(JsonUtility.ToJson(new Message { command = Command.Pause }));
-    }
+        isPlay = false;
+        playAndPause.GetComponentInChildren<Text>().text = "Play";
 
-    //登陆后请求更新播放列表
-    private void RequestPlayList() => SendNetMessage(JsonUtility.ToJson(new Message { command = Command.PlayList }));
+        var message = new Message { command = Command.Pause };
+        SendNetMessage(message);
+    }
 
     //更新播放列表
     private void UpdatePlayList()
