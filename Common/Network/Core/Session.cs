@@ -10,11 +10,18 @@ namespace zFramework.Network
     public class Session : IDisposable
     {
         public bool IsAlive => client.IsOnline();
-        public EndPoint RemoteEndPoint => client.Client.RemoteEndPoint;
-        public EndPoint LocalEndPoint => client.Client.LocalEndPoint;
-        public Session(TcpClient client)
+        public bool isServerSide;
+        public EndPoint IPEndPoint { get; private set; }
+        public Session(TcpClient client,bool isServerSide)
         {
             this.client = client;
+            this.isServerSide = isServerSide;
+            // 记录IP端口信息，可供调试
+            var ipEndPoint =( isServerSide?client.Client.RemoteEndPoint:client.Client.LocalEndPoint) as IPEndPoint;
+            var ip = ipEndPoint.Address.ToString();
+            var port = ipEndPoint.Port;
+            IPEndPoint = new IPEndPoint(IPAddress.Parse(ip), port);
+
             recvbuffer = new CircularBuffer();
             recvparser = new PacketParser(recvbuffer);
         }
@@ -34,7 +41,6 @@ namespace zFramework.Network
 
         public async Task HandleNetworkStreamAsync()
         {
-            //连接断开时，stream 会抛出dispose相关异常,捕获避免向上传递中断了监听。
             while (IsAlive)
             {
                 var stream = client.GetStream();
@@ -55,8 +61,6 @@ namespace zFramework.Network
             client.Close();
             recvbuffer.Close();
         }
-
-        internal Task ConnectAsync(string ip, int port) => client.ConnectAsync(ip, port);
 
         public void Dispose()
         {

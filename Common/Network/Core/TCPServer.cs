@@ -44,18 +44,10 @@ namespace zFramework.Network
                 try
                 {
                     var client = await listener.AcceptTcpClientAsync();
-                    var session = new Session(client);
+                    var session = new Session(client, true);
                     sessions.Add(session);
                     Post(() => OnClientConnected?.Invoke(session)); //通过该语句，程序将返回主线程上下文，其他地方一个意思
-                    try
-                    {
-                        _ = Task.Run(session.HandleNetworkStreamAsync);
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.LogWarning($"{nameof(TCPServer)}: Handle Network Stream Failed - {e}");
-                        DisaliveSessionHandle(session);
-                    }
+                    _ = Task.Run(()=>ReceiveDataAsync(session));
                 }
                 catch (ObjectDisposedException e)// thrown if the listener socket is closed
                 {
@@ -71,6 +63,20 @@ namespace zFramework.Network
                 }
             }
         }
+
+        private async Task ReceiveDataAsync(Session session)
+        {
+            try
+            {
+                await session.HandleNetworkStreamAsync();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"{nameof(TCPServer)}: [播放器] 接收消息失败: {e}");
+                DisaliveSessionHandle(session);
+            }
+        }
+
         public void Stop()
         {
             //先通知在线的客户端

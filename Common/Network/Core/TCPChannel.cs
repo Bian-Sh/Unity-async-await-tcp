@@ -1,12 +1,11 @@
-﻿namespace zFramework.Network
-{
-    using System;
-    using System.Net.Sockets;
-    using System.Text;
-    using System.Threading.Tasks;
-    using UnityEngine;
-    using static Misc.Loom;
+﻿using System;
+using System.Net.Sockets;
+using System.Threading.Tasks;
+using UnityEngine;
+using static zFramework.Network.Misc.Loom;
 
+namespace zFramework.Network
+{
     public class TCPChannel
     {
         public Action OnEstablished;
@@ -18,11 +17,6 @@
         {
             this.ip = ip;
             this.port = port;
-            var client = new TcpClient();
-            client.NoDelay = true;
-            session = new Session(client);
-            recvbuffer = new CircularBuffer();
-            recvparser = new PacketParser(recvbuffer);
         }
 
         public async Task<bool> ConnectAsync()
@@ -33,18 +27,13 @@
                 {
                     return true;
                 }
-                await session.ConnectAsync(ip, port);
+                var client = new TcpClient();
+                client.NoDelay = true;
+                await client.ConnectAsync(ip, port);
+                session = new Session(client,false);
                 IsConnected = true;
                 Post(OnEstablished); //发布握手成功事件
-                try
-                {
-                    _ = Task.Run(session.HandleNetworkStreamAsync);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError($"{nameof(TCPChannel)}: [控制器] 接收消息失败: {e}");
-                    DisaliveSessionHandle(session);
-                }
+                _ = Task.Run(ReceiveDataAsync);
             }
             catch (Exception e)
             {
@@ -53,6 +42,19 @@
                 Post(OnEstablishFailed); //发布握手失败事件
             }
             return IsConnected;
+        }
+
+        private async Task ReceiveDataAsync()
+        {
+            try
+            {
+                await session.HandleNetworkStreamAsync();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"{nameof(TCPChannel)}: [控制器] 接收消息失败: {e}");
+                DisaliveSessionHandle(session);
+            }
         }
 
         public void Send(byte[] datas)
@@ -90,8 +92,6 @@
 
         readonly string ip;
         readonly int port;
-        readonly Session session;
-        readonly CircularBuffer recvbuffer;
-        readonly PacketParser recvparser;
+        Session session;
     }
 }
