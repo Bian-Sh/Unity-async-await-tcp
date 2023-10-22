@@ -33,6 +33,10 @@ public class PlayerServer : MonoBehaviour
 
         player.targetTexture.Release();
         server.OnClientConnected.AddListener(OnClientConnected);
+        server.OnClientDisconnected.AddListener(session =>
+        {
+            Debug.Log($"客户端 {session.IPEndPoint} 断开连接！");
+        });
         _ = Task.Run(server.ListenAsync); //此处务必使用 Task 执行，否则这个Awake 方法会回不到主线程，如果下面还有逻辑也不会执行咯
     }
 
@@ -63,7 +67,7 @@ public class PlayerServer : MonoBehaviour
 
     private void OnStopRequest(Session session, Message message)
     {
-        Debug.Log($"播放器收到 {session.RemoteEndPoint} 停止播放指令！");
+        Debug.Log($"播放器收到 {session.IPEndPoint} 停止播放指令！");
         currentPlayFile = string.Empty;
         player.Stop();
         player.targetTexture.Release();
@@ -74,7 +78,7 @@ public class PlayerServer : MonoBehaviour
 
     private void OnPauseRequest(Session session, Message message)
     {
-        Debug.Log($"播放器收到 {session.RemoteEndPoint} 暂停播放指令！");
+        Debug.Log($"播放器收到 {session.IPEndPoint} 暂停播放指令！");
         if (!player.isPlaying) return;
         player.Pause();
 
@@ -85,7 +89,7 @@ public class PlayerServer : MonoBehaviour
 
     private void OnPlayRequest(Session session, Message message)
     {
-        Debug.Log($"播放器 {session.RemoteEndPoint} 请求播放 {message.cmdContext}！");
+        Debug.Log($"播放器 {session.IPEndPoint} 请求播放 {message.cmdContext}！");
         var item = playList.items.Find(v => v.name == message.cmdContext);
         if (currentPlayFile == message.cmdContext)
         {

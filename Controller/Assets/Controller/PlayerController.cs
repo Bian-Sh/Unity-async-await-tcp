@@ -23,6 +23,11 @@ public class PlayerController : MonoBehaviour
 
     void Start()
     {
+        channel = new TCPChannel(ip, port);
+        channel.OnDisconnected += OnChannelClosed;
+        channel.OnEstablished += OnEstablished;
+        channel.OnEstablishFailed += OnEstablishFailed;
+
         playAndPause.onClick.AddListener(OnPlayAndPauseButtonClicked);
         stop.onClick.AddListener(Stop);
         connectButton.onClick.AddListener(OnConnectOrDisConnectRequired);
@@ -66,22 +71,13 @@ public class PlayerController : MonoBehaviour
 
     private void OnApplicationQuit() => channel?.Close();
 
-    private TCPChannel CreateTCPChannel()
-    {
-        channel = new TCPChannel(ip, port);
-        channel.OnDisconnected += OnChannelClosed;
-        channel.OnEstablished += OnEstablished;
-        channel.OnEstablishFailed += OnEstablishFailed;
-        return channel;
-    }
     private async void OnConnectOrDisConnectRequired()
     {
         connectButton.interactable = false;
         var text = connectButton.GetComponentInChildren<Text>();
 
-        if (channel == null)
+        if (!channel .IsConnected)
         {
-            channel = CreateTCPChannel();
             text.text = "连接中...";
             var isConnectedSuccess = await channel.ConnectAsync();
             text.text = isConnectedSuccess ? "已连接" : "连接服务器";
@@ -89,7 +85,6 @@ public class PlayerController : MonoBehaviour
         else
         {
             channel.Close();
-            channel = null;
             text.text = "连接服务器";
         }
         connectButton.interactable = true;
