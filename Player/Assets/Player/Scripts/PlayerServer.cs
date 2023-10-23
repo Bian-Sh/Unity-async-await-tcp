@@ -43,6 +43,7 @@ public class PlayerServer : MonoBehaviour
 
     private void OnClientConnected(Session session)
     {
+        Debug.Log($"客户端 {session.IPEndPoint} 连接成功！");
         string pl = JsonUtility.ToJson(playList);
         Message message = new Message { command = Command.PlayList, cmdContext = pl };
         server.Send(session, Encoding.UTF8.GetBytes(JsonUtility.ToJson(message)));

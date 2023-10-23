@@ -54,6 +54,7 @@ namespace zFramework.Network
                     Enqueue(this, message);
                 }
             }
+            throw new Exception("连接已断开");
         }
 
         public void Close()
